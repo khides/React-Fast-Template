@@ -77,7 +77,7 @@ export async function updateMyList(
   listId: string,
   updates: { name?: string; description?: string }
 ): Promise<MyList> {
-  const response = await fetch(`${API_BASE}${listId}`, {
+  const response = await fetch(`${API_BASE}/${listId}`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(updates),
@@ -90,7 +90,7 @@ export async function updateMyList(
 }
 
 export async function deleteMyList(listId: string): Promise<void> {
-  const response = await fetch(`${API_BASE}${listId}`, {
+  const response = await fetch(`${API_BASE}/${listId}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -102,7 +102,7 @@ export async function addLocationToList(
   listId: string,
   location: Omit<Location, 'id' | 'createdAt'>
 ): Promise<Location> {
-  const response = await fetch(`${API_BASE}${listId}/locations`, {
+  const response = await fetch(`${API_BASE}/${listId}/locations`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -124,7 +124,7 @@ export async function removeLocationFromList(
   listId: string,
   locationId: string
 ): Promise<void> {
-  const response = await fetch(`${API_BASE}${listId}/locations/${locationId}`, {
+  const response = await fetch(`${API_BASE}/${listId}/locations/${locationId}`, {
     method: 'DELETE',
   })
   if (!response.ok) {
@@ -136,7 +136,7 @@ export async function reorderLocations(
   listId: string,
   locationIds: string[]
 ): Promise<Location[]> {
-  const response = await fetch(`${API_BASE}${listId}/locations/reorder`, {
+  const response = await fetch(`${API_BASE}/${listId}/locations/reorder`, {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ location_ids: locationIds.map(Number) }),
