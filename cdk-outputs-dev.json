@@ -1,0 +1,27 @@
+{
+  "react-fast-app-dev-network": {
+    "ExportsOutputRefVPCB9E5F0B4BD23A326": "vpc-0c55c85e4b9d3bbcb",
+    "ExportsOutputRefVPCPrivateSubnet2SubnetCFCDAA7AB22CF85D": "subnet-0b672f69191f5f8cf",
+    "ExportsOutputFnGetAttVPCB9E5F0B4CidrBlock723DF8C0": "10.0.0.0/16",
+    "VpcId": "vpc-0c55c85e4b9d3bbcb",
+    "ExportsOutputRefVPCIsolatedSubnet1SubnetEBD00FC6298E81EF": "subnet-0a3c52bccd3152dc1",
+    "ExportsOutputRefVPCPrivateSubnet1Subnet8BCA10E01F79A1B7": "subnet-0d6a4a26d13e5cb0e",
+    "ExportsOutputRefVPCIsolatedSubnet2Subnet4B1C8CAAD8B83B81": "subnet-0ced7fe4a944afdc8"
+  },
+  "react-fast-app-dev-database": {
+    "DatabaseSecretArn": "arn:aws:secretsmanager:ap-northeast-1:702355520644:secret:react-fast-app/dev/database-oVLVxb",
+    "ExportsOutputFnGetAttDatabaseB269D8BBEndpointAddressA4DBD059": "react-fast-app-dev-db.chc6aggmqsw2.ap-northeast-1.rds.amazonaws.com",
+    "ExportsOutputRefDatabaseSecret86DBB7B353068790": "arn:aws:secretsmanager:ap-northeast-1:702355520644:secret:react-fast-app/dev/database-oVLVxb",
+    "DatabaseEndpoint": "react-fast-app-dev-db.chc6aggmqsw2.ap-northeast-1.rds.amazonaws.com"
+  },
+  "react-fast-app-dev-backend": {
+    "LambdaFunctionArn": "arn:aws:lambda:ap-northeast-1:702355520644:function:react-fast-app-dev-api",
+    "LambdaFunctionUrl": "https://5ts5xhbqkp33gikg2dkldhfrxy0cpzfc.lambda-url.ap-northeast-1.on.aws/",
+    "ExportsOutputFnGetAttBackendFunctionFunctionUrl9AC67B19FunctionUrl8F87D627": "https://5ts5xhbqkp33gikg2dkldhfrxy0cpzfc.lambda-url.ap-northeast-1.on.aws/"
+  },
+  "react-fast-app-dev-frontend": {
+    "CloudFrontUrl": "https://d3vbmysfaq6rjd.cloudfront.net",
+    "S3BucketName": "react-fast-app-dev-frontend-702355520644",
+    "DistributionDomainName": "d3vbmysfaq6rjd.cloudfront.net"
+  }
+}
