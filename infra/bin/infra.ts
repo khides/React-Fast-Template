@@ -38,14 +38,16 @@ const backendStack = new BackendStack(app, `${appName}-${stage}-backend`, {
   stage,
   vpc: networkStack.vpc,
   databaseSecret: databaseStack.databaseSecret,
-  rdsProxy: databaseStack.rdsProxy,
+  databaseEndpoint: databaseStack.databaseEndpoint,
+  // RDS Proxy - uncomment when upgrading account
+  // rdsProxy: databaseStack.rdsProxy,
 });
 
 const frontendStack = new FrontendStack(app, `${appName}-${stage}-frontend`, {
   env,
   appName,
   stage,
-  apiGatewayUrl: backendStack.apiUrl,
+  lambdaFunctionUrl: backendStack.lambdaFunctionUrl,
 });
 
 // Add dependencies

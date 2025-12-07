@@ -3,14 +3,13 @@ import * as s3 from 'aws-cdk-lib/aws-s3';
 import * as s3deploy from 'aws-cdk-lib/aws-s3-deployment';
 import * as cloudfront from 'aws-cdk-lib/aws-cloudfront';
 import * as cloudfrontOrigins from 'aws-cdk-lib/aws-cloudfront-origins';
-import * as iam from 'aws-cdk-lib/aws-iam';
 import { Construct } from 'constructs';
 import * as path from 'path';
 
 interface FrontendStackProps extends cdk.StackProps {
   appName: string;
   stage: string;
-  apiGatewayUrl: string;
+  lambdaFunctionUrl: string;
 }
 
 export class FrontendStack extends cdk.Stack {
@@ -43,10 +42,11 @@ export class FrontendStack extends cdk.Stack {
     // Grant read access to CloudFront
     websiteBucket.grantRead(originAccessIdentity);
 
-    // Extract API Gateway domain from URL
-    const apiDomain = cdk.Fn.select(
+    // Extract Lambda Function URL domain (remove https:// and trailing /)
+    // Lambda Function URL format: https://xxxx.lambda-url.region.on.aws/
+    const lambdaDomain = cdk.Fn.select(
       2,
-      cdk.Fn.split('/', props.apiGatewayUrl)
+      cdk.Fn.split('/', props.lambdaFunctionUrl)
     );
 
     // CloudFront distribution
@@ -61,7 +61,7 @@ export class FrontendStack extends cdk.Stack {
       },
       additionalBehaviors: {
         '/api/*': {
-          origin: new cloudfrontOrigins.HttpOrigin(apiDomain, {
+          origin: new cloudfrontOrigins.HttpOrigin(lambdaDomain, {
             protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
           }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,

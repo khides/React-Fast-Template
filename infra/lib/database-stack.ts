@@ -12,8 +12,10 @@ interface DatabaseStackProps extends cdk.StackProps {
 
 export class DatabaseStack extends cdk.Stack {
   public readonly databaseSecret: secretsmanager.ISecret;
-  public readonly rdsProxy: rds.DatabaseProxy;
+  public readonly databaseEndpoint: string;
   public readonly securityGroup: ec2.ISecurityGroup;
+  // RDS Proxy is not available in free tier
+  // public readonly rdsProxy: rds.DatabaseProxy;
 
   constructor(scope: Construct, id: string, props: DatabaseStackProps) {
     super(scope, id, props);
@@ -48,7 +50,7 @@ export class DatabaseStack extends cdk.Stack {
     const database = new rds.DatabaseInstance(this, 'Database', {
       instanceIdentifier: `${props.appName}-${props.stage}-db`,
       engine: rds.DatabaseInstanceEngine.postgres({
-        version: rds.PostgresEngineVersion.VER_16_4,
+        version: rds.PostgresEngineVersion.VER_15,
       }),
       instanceType: ec2.InstanceType.of(
         ec2.InstanceClass.T3,
@@ -66,7 +68,7 @@ export class DatabaseStack extends cdk.Stack {
       storageEncrypted: true,
       multiAz: false,
       autoMinorVersionUpgrade: true,
-      backupRetention: cdk.Duration.days(7),
+      backupRetention: cdk.Duration.days(1),
       deletionProtection: props.stage === 'prod',
       removalPolicy:
         props.stage === 'prod'
@@ -74,34 +76,37 @@ export class DatabaseStack extends cdk.Stack {
           : cdk.RemovalPolicy.DESTROY,
     });
 
-    // Create RDS Proxy
-    this.rdsProxy = new rds.DatabaseProxy(this, 'DatabaseProxy', {
-      dbProxyName: `${props.appName}-${props.stage}-proxy`,
-      proxyTarget: rds.ProxyTarget.fromInstance(database),
-      secrets: [this.databaseSecret],
-      vpc: props.vpc,
-      vpcSubnets: {
-        subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
-      },
-      securityGroups: [this.securityGroup],
-      requireTLS: true,
-      idleClientTimeout: cdk.Duration.minutes(30),
-      maxConnectionsPercent: 100,
-      maxIdleConnectionsPercent: 50,
-    });
+    this.databaseEndpoint = database.dbInstanceEndpointAddress;
+
+    // RDS Proxy - Not available in free tier, uncomment when upgrading account
+    // this.rdsProxy = new rds.DatabaseProxy(this, 'DatabaseProxy', {
+    //   dbProxyName: `${props.appName}-${props.stage}-proxy`,
+    //   proxyTarget: rds.ProxyTarget.fromInstance(database),
+    //   secrets: [this.databaseSecret],
+    //   vpc: props.vpc,
+    //   vpcSubnets: {
+    //     subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
+    //   },
+    //   securityGroups: [this.securityGroup],
+    //   requireTLS: true,
+    //   idleClientTimeout: cdk.Duration.minutes(30),
+    //   maxConnectionsPercent: 100,
+    //   maxIdleConnectionsPercent: 50,
+    // });
 
     // Outputs
     new cdk.CfnOutput(this, 'DatabaseEndpoint', {
-      value: database.dbInstanceEndpointAddress,
+      value: this.databaseEndpoint,
       description: 'RDS Database Endpoint',
       exportName: `${props.appName}-${props.stage}-db-endpoint`,
     });
 
-    new cdk.CfnOutput(this, 'RdsProxyEndpoint', {
-      value: this.rdsProxy.endpoint,
-      description: 'RDS Proxy Endpoint',
-      exportName: `${props.appName}-${props.stage}-proxy-endpoint`,
-    });
+    // RDS Proxy endpoint - uncomment when using RDS Proxy
+    // new cdk.CfnOutput(this, 'RdsProxyEndpoint', {
+    //   value: this.rdsProxy.endpoint,
+    //   description: 'RDS Proxy Endpoint',
+    //   exportName: `${props.appName}-${props.stage}-proxy-endpoint`,
+    // });
 
     new cdk.CfnOutput(this, 'DatabaseSecretArn', {
       value: this.databaseSecret.secretArn,
