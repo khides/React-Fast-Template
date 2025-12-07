@@ -1,6 +1,6 @@
 # React + FastAPI + AWS Serverless Template
 
-React (Vite) + FastAPI + PostgreSQL のモノレポテンプレート。AWS CloudFront, S3, API Gateway, Lambda, RDS Proxy, RDS を使用したサーバーレスアーキテクチャでデプロイ可能。
+React (Vite) + FastAPI + PostgreSQL のモノレポテンプレート。AWS CloudFront, S3, Lambda Function URL, RDS を使用したサーバーレスアーキテクチャでデプロイ可能。
 
 ## アーキテクチャ
 
@@ -10,23 +10,13 @@ React (Vite) + FastAPI + PostgreSQL のモノレポテンプレート。AWS Clou
 │                    (CDN + SSL終端 + キャッシュ)                    │
 └─────────────────────┬───────────────────────┬───────────────────┘
                       │                       │
+                      │ /                     │ /api/*
                       ▼                       ▼
               ┌───────────────┐      ┌─────────────────┐
-              │      S3       │      │  API Gateway    │
-              │  (静的ファイル) │      │   (HTTP API)    │
-              └───────────────┘      └────────┬────────┘
-                                              │
-                                              ▼
-                                     ┌─────────────────┐
-                                     │     Lambda      │
-                                     │   (FastAPI +    │
+              │      S3       │      │     Lambda      │
+              │  (静的ファイル) │      │   Function URL  │
+              └───────────────┘      │   (FastAPI +    │
                                      │    Mangum)      │
-                                     └────────┬────────┘
-                                              │
-                                              ▼
-                                     ┌─────────────────┐
-                                     │   RDS Proxy     │
-                                     │ (コネクション管理) │
                                      └────────┬────────┘
                                               │
                                               ▼
@@ -43,7 +33,7 @@ React (Vite) + FastAPI + PostgreSQL のモノレポテンプレート。AWS Clou
 ├── frontend/           # React (Vite + TypeScript)
 ├── backend/            # FastAPI (Python)
 ├── infra/              # AWS CDK (TypeScript)
-├── scripts/            # ユーティリティスクリプト
+├── scripts/            # デプロイスクリプト (Bash/Fish)
 ├── docker-compose.yml  # ローカル開発環境
 └── Makefile           # タスクランナー
 ```
@@ -55,6 +45,35 @@ React (Vite) + FastAPI + PostgreSQL のモノレポテンプレート。AWS Clou
 - Docker & Docker Compose
 - AWS CLI v2
 - AWS CDK CLI (`npm install -g aws-cdk`)
+
+## クイックスタート
+
+### ローカル開発環境
+
+```bash
+# 1. 依存関係のインストール
+make install
+
+# 2. 開発環境を起動（DB + Backend + Frontend）
+make dev
+```
+
+アクセス:
+- Frontend: http://localhost:3001
+- Backend API: http://localhost:8001
+- API Docs: http://localhost:8001/docs
+
+### AWS へのデプロイ
+
+```bash
+# AWS プロファイルを設定
+aws configure --profile react-fast-deploy
+
+# デプロイ
+make deploy
+```
+
+---
 
 ## ローカル開発環境のセットアップ
 
@@ -73,115 +92,188 @@ make install
 
 # または個別にインストール
 cd frontend && npm install
-cd ../backend && pip install -e ".[dev]"
+cd ../backend && python3 -m venv .venv && . .venv/bin/activate && pip install -e ".[dev]"
 cd ../infra && npm install
 ```
 
-### 3. 環境変数の設定
+### 3. 開発環境の起動
+
+#### 方法 1: Make コマンド（推奨）
 
 ```bash
-# Backend
-cp backend/.env.example backend/.env
+# 全サービスを起動（DB + Backend + Frontend）
+make dev
 
-# Infrastructure
-cp infra/.env.example infra/.env
+# または個別に起動
+make db-up         # PostgreSQL のみ
+make backend-dev   # Backend のみ（DB も自動起動）
+make frontend-dev  # Frontend のみ
 ```
 
-### 4. Docker で開発環境を起動
+#### 方法 2: Docker Compose
 
 ```bash
-# 全サービスを起動
+# 全サービスを Docker で起動
 make docker-up
 
-# または
-docker-compose up -d
+# ログを確認
+make docker-logs
+
+# 停止
+make docker-down
 ```
 
-アクセス:
-- Frontend: http://localhost:3000
-- Backend API: http://localhost:8000
-- API Docs: http://localhost:8000/docs
+### ローカル環境のポート
 
-### 5. Docker を使わずに起動（オプション）
+| サービス | ポート | URL |
+|---------|-------|-----|
+| Frontend | 3001 | http://localhost:3001 |
+| Backend | 8001 | http://localhost:8001 |
+| API Docs | 8001 | http://localhost:8001/docs |
+| PostgreSQL | 5433 | localhost:5433 |
 
-```bash
-# PostgreSQL のみ Docker で起動
-docker-compose up -d db
-
-# Backend を起動
-cd backend
-pip install -e ".[dev]"
-uvicorn app.main:app --reload --port 8000
-
-# 別ターミナルで Frontend を起動
-cd frontend
-npm install
-npm run dev
-```
+---
 
 ## AWS へのデプロイ
 
 ### ステップ 1: AWS CLI の設定
 
 ```bash
-aws configure
+# 専用プロファイルを作成
+aws configure --profile react-fast-deploy
 ```
 
 以下の情報を入力:
 - AWS Access Key ID
 - AWS Secret Access Key
-- Default region (例: ap-northeast-1)
-- Default output format: json
+- Default region: `ap-northeast-1`
+- Default output format: `json`
 
 ### ステップ 2: CDK Bootstrap（初回のみ）
 
 ```bash
-cd infra
-npm install
-npx cdk bootstrap aws://YOUR_ACCOUNT_ID/ap-northeast-1
+make cdk-bootstrap
 ```
 
-### ステップ 3: 環境変数の設定
+### ステップ 3: デプロイ
 
 ```bash
-# infra/.env を編集
-AWS_ACCOUNT_ID=123456789012
-AWS_REGION=ap-northeast-1
-```
-
-### ステップ 4: フロントエンドのビルド
-
-```bash
-cd frontend
-npm run build
-```
-
-### ステップ 5: デプロイ
-
-```bash
-# 全スタックをデプロイ
+# dev 環境にデプロイ
 make deploy
 
 # または
-cd infra
-npx cdk deploy --all
+make deploy-dev
+
+# prod 環境にデプロイ
+make deploy-prod
+
+# カスタム設定でデプロイ
+make deploy AWS_PROFILE=myprofile STAGE=prod
 ```
 
-デプロイ順序:
-1. Network Stack (VPC)
-2. Database Stack (RDS + RDS Proxy)
-3. Backend Stack (Lambda + API Gateway)
-4. Frontend Stack (S3 + CloudFront)
+#### デプロイスクリプトを使用
+
+```bash
+# Bash
+./scripts/deploy.sh dev
+
+# Fish
+./scripts/deploy.fish dev
+```
 
 ### デプロイ完了後の確認
 
-デプロイ完了後、以下の出力が表示されます:
+デプロイ完了後、以下の出力が `cdk-outputs-dev.json` に保存されます:
 
+```json
+{
+  "react-fast-app-dev-frontend": {
+    "CloudFrontUrl": "https://xxxxx.cloudfront.net"
+  },
+  "react-fast-app-dev-backend": {
+    "LambdaFunctionUrl": "https://xxxxx.lambda-url.ap-northeast-1.on.aws"
+  }
+}
 ```
-Outputs:
-react-fast-app-dev-frontend.CloudFrontUrl = https://xxxxx.cloudfront.net
-react-fast-app-dev-backend.ApiUrl = https://xxxxx.execute-api.ap-northeast-1.amazonaws.com
+
+### リソースの削除
+
+```bash
+# 確認プロンプトあり
+make destroy
+
+# 特定の環境を削除
+make destroy STAGE=dev
 ```
+
+---
+
+## コマンドリファレンス
+
+### ローカル開発
+
+| コマンド | 説明 |
+|---------|------|
+| `make install` | 全ての依存関係をインストール |
+| `make venv` | Python 仮想環境を作成 |
+| `make dev` | DB + Backend + Frontend を起動 |
+| `make backend-dev` | Backend のみ起動 |
+| `make frontend-dev` | Frontend のみ起動 |
+| `make db-up` | PostgreSQL のみ起動 |
+| `make docker-up` | Docker で全サービス起動 |
+| `make docker-down` | Docker 停止 |
+| `make docker-logs` | Docker ログを表示 |
+
+### ビルド & テスト
+
+| コマンド | 説明 |
+|---------|------|
+| `make build` | Frontend + Backend をビルド |
+| `make build-frontend` | Frontend のみビルド |
+| `make test` | テストを実行 |
+| `make lint` | Linter を実行 |
+
+### AWS デプロイ
+
+| コマンド | 説明 |
+|---------|------|
+| `make check-aws` | AWS 認証情報を確認 |
+| `make deploy` | dev 環境にデプロイ |
+| `make deploy-dev` | dev 環境にデプロイ |
+| `make deploy-prod` | prod 環境にデプロイ |
+| `make deploy-frontend` | Frontend のみデプロイ |
+| `make deploy-backend` | Backend のみデプロイ |
+| `make destroy` | リソースを削除 |
+
+### CDK 操作
+
+| コマンド | 説明 |
+|---------|------|
+| `make cdk-synth` | CloudFormation テンプレート生成 |
+| `make cdk-diff` | 差分を確認 |
+| `make cdk-bootstrap` | CDK Bootstrap を実行 |
+
+### クリーンアップ
+
+| コマンド | 説明 |
+|---------|------|
+| `make clean` | ビルド成果物を削除 |
+| `make clean-docker` | Docker ボリュームを削除 |
+
+### 設定変数
+
+```bash
+# AWS プロファイルを指定
+make deploy AWS_PROFILE=myprofile
+
+# ステージを指定
+make deploy STAGE=prod
+
+# 組み合わせ
+make deploy AWS_PROFILE=myprofile STAGE=prod
+```
+
+---
 
 ## GUI での操作が必要な設定
 
@@ -193,98 +285,39 @@ react-fast-app-dev-backend.ApiUrl = https://xxxxx.execute-api.ap-northeast-1.ama
    - AWS Console → Certificate Manager → us-east-1 リージョンを選択
    - 「証明書をリクエスト」→ パブリック証明書
    - ドメイン名を入力 → DNS 検証を選択
-   - Route 53 で自動的に検証レコードを作成
 
-2. **Route 53 でホストゾーンを作成**
-   - AWS Console → Route 53 → ホストゾーン → 作成
-   - ドメイン名を入力
-
-3. **CloudFront にカスタムドメインを設定**
+2. **CloudFront にカスタムドメインを設定**
    - AWS Console → CloudFront → ディストリビューションを選択
    - 「編集」→ 代替ドメイン名 (CNAME) を追加
    - SSL 証明書を選択
 
-### 2. RDS への初期データ投入（必要な場合）
-
-**Bastion Host または Session Manager を使用:**
-
-1. **Session Manager でアクセス**
-   - AWS Console → EC2 → インスタンスを起動（Bastion用）
-   - VPC 内の Private Subnet に配置
-   - Session Manager で接続
-
-2. **psql で RDS に接続**
-   ```bash
-   # Secrets Manager から認証情報を取得
-   aws secretsmanager get-secret-value \
-     --secret-id react-fast-app/dev/database \
-     --query SecretString --output text
-
-   # psql で接続
-   psql -h <RDS_PROXY_ENDPOINT> -U postgres -d app
-   ```
-
-### 3. CloudWatch ダッシュボードの作成（オプション）
+### 2. CloudWatch ダッシュボードの作成（オプション）
 
 1. AWS Console → CloudWatch → ダッシュボード
 2. 「ダッシュボードの作成」
 3. 以下のメトリクスを追加:
    - Lambda: Invocations, Duration, Errors
-   - API Gateway: Count, Latency, 4XXError, 5XXError
    - RDS: CPUUtilization, DatabaseConnections
 
-### 4. アラームの設定（オプション）
-
-1. AWS Console → CloudWatch → アラーム
-2. 推奨アラーム:
-   - Lambda エラー率 > 1%
-   - API Gateway 5XX エラー > 0
-   - RDS CPU 使用率 > 80%
-   - RDS 接続数 > 制限の 80%
-
-## コマンドリファレンス
-
-```bash
-# 開発
-make dev              # ローカル開発環境を起動
-make docker-up        # Docker コンテナを起動
-make docker-down      # Docker コンテナを停止
-make docker-logs      # ログを表示
-
-# ビルド
-make build            # フロントエンド・バックエンドをビルド
-make build-frontend   # フロントエンドのみビルド
-
-# テスト・Lint
-make test             # テストを実行
-make lint             # Linter を実行
-
-# デプロイ
-make deploy           # 全スタックをデプロイ
-make deploy-frontend  # フロントエンドのみデプロイ
-make deploy-backend   # バックエンドのみデプロイ
-
-# CDK
-make cdk-synth        # CloudFormation テンプレートを生成
-make cdk-diff         # 差分を確認
-make cdk-bootstrap    # CDK Bootstrap を実行
-
-# クリーンアップ
-make clean            # ビルド成果物を削除
-```
+---
 
 ## トラブルシューティング
 
 ### Lambda が RDS に接続できない
 
-1. Lambda と RDS Proxy が同じ VPC にあることを確認
+1. Lambda と RDS が同じ VPC にあることを確認
 2. セキュリティグループで PostgreSQL ポート (5432) が許可されていることを確認
-3. Lambda の実行ロールに必要な権限があることを確認
+3. CloudWatch Logs でエラーメッセージを確認
 
 ### CloudFront で 403 エラー
 
 1. S3 バケットポリシーが正しく設定されていることを確認
-2. Origin Access Identity が設定されていることを確認
+2. Origin Access Control が設定されていることを確認
+
+### API で 307 リダイレクトが発生
+
+FastAPI のデフォルトでは、`/api/items` へのリクエストが `/api/items/` にリダイレクトされます。
+このテンプレートでは `redirect_slashes=False` で無効化済みです。
 
 ### ローカルで DB に接続できない
 
@@ -299,29 +332,34 @@ docker-compose logs db
 docker-compose restart db
 ```
 
+---
+
 ## セキュリティのベストプラクティス
 
 - RDS は Private Subnet に配置
-- RDS Proxy を使用してコネクション管理
 - Secrets Manager でデータベース認証情報を管理
 - CloudFront で HTTPS を強制
 - S3 バケットへの直接アクセスをブロック
 - Lambda は VPC 内で実行
 
-## コスト見積もり（開発環境）
+---
+
+## コスト見積もり（開発環境・Free Tier 活用）
 
 | サービス | 見積もり (USD/月) |
 |---------|-----------------|
 | Lambda | ~$0 (Free Tier) |
-| API Gateway | ~$0 (Free Tier) |
+| Lambda Function URL | $0 |
 | RDS (db.t3.micro) | ~$15 |
-| RDS Proxy | ~$20 |
 | NAT Gateway | ~$32 |
 | CloudFront | ~$0 (Free Tier) |
 | S3 | ~$0 |
-| **合計** | **~$67** |
+| **合計** | **~$47** |
 
-※ 本番環境では RDS のスペックアップ、Multi-AZ 構成などで追加コストが発生します。
+※ RDS Proxy を使用しないことで約 $20/月 削減
+※ 本番環境では RDS のスペックアップ、Multi-AZ 構成などで追加コストが発生
+
+---
 
 ## ライセンス
 

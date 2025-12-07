@@ -1,1 +1,1 @@
-{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts"],"version":"5.6.3"}
+{"root":["./src/App.tsx","./src/main.tsx","./src/vite-env.d.ts","./src/components/MapView.tsx","./src/components/MyListPanel.tsx","./src/components/SearchBar.tsx","./src/contexts/MyListContext.tsx","./src/hooks/useLocalStorage.ts","./src/pages/MapPage.tsx","./src/types/maps.ts"],"version":"5.6.3"}
