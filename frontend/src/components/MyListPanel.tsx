@@ -18,6 +18,8 @@ export function MyListPanel({
   const {
     lists,
     routes,
+    loading,
+    error,
     createList,
     updateList,
     deleteList,
@@ -30,25 +32,40 @@ export function MyListPanel({
   const [expandedListId, setExpandedListId] = useState<string | null>(null)
   const [editingListId, setEditingListId] = useState<string | null>(null)
   const [editingName, setEditingName] = useState('')
+  const [operationLoading, setOperationLoading] = useState(false)
 
-  const handleCreateList = () => {
-    if (newListName.trim()) {
-      const newList = createList(newListName.trim())
-      setNewListName('')
-      setIsCreating(false)
-      setExpandedListId(newList.id)
+  const handleCreateList = async () => {
+    if (newListName.trim() && !operationLoading) {
+      setOperationLoading(true)
+      try {
+        const newList = await createList(newListName.trim())
+        setNewListName('')
+        setIsCreating(false)
+        setExpandedListId(newList.id)
+      } catch (err) {
+        console.error('Failed to create list:', err)
+      } finally {
+        setOperationLoading(false)
+      }
     }
   }
 
-  const handleAddToList = (listId: string) => {
-    if (selectedLocation) {
-      addLocationToList(listId, {
-        name: selectedLocation.name,
-        address: selectedLocation.address,
-        lat: selectedLocation.lat,
-        lng: selectedLocation.lng,
-        placeId: selectedLocation.placeId,
-      })
+  const handleAddToList = async (listId: string) => {
+    if (selectedLocation && !operationLoading) {
+      setOperationLoading(true)
+      try {
+        await addLocationToList(listId, {
+          name: selectedLocation.name,
+          address: selectedLocation.address,
+          lat: selectedLocation.lat,
+          lng: selectedLocation.lng,
+          placeId: selectedLocation.placeId,
+        })
+      } catch (err) {
+        console.error('Failed to add location:', err)
+      } finally {
+        setOperationLoading(false)
+      }
     }
   }
 
@@ -57,17 +74,50 @@ export function MyListPanel({
     setEditingName(list.name)
   }
 
-  const handleSaveEdit = (listId: string) => {
-    if (editingName.trim()) {
-      updateList(listId, { name: editingName.trim() })
+  const handleSaveEdit = async (listId: string) => {
+    if (editingName.trim() && !operationLoading) {
+      setOperationLoading(true)
+      try {
+        await updateList(listId, { name: editingName.trim() })
+        setEditingListId(null)
+        setEditingName('')
+      } catch (err) {
+        console.error('Failed to update list:', err)
+      } finally {
+        setOperationLoading(false)
+      }
     }
-    setEditingListId(null)
-    setEditingName('')
   }
 
   const handleCancelEdit = () => {
     setEditingListId(null)
     setEditingName('')
+  }
+
+  const handleDeleteList = async (list: MyList) => {
+    if (confirm(`「${list.name}」を削除しますか？`) && !operationLoading) {
+      setOperationLoading(true)
+      try {
+        await deleteList(list.id)
+      } catch (err) {
+        console.error('Failed to delete list:', err)
+      } finally {
+        setOperationLoading(false)
+      }
+    }
+  }
+
+  const handleRemoveLocation = async (listId: string, locationId: string) => {
+    if (!operationLoading) {
+      setOperationLoading(true)
+      try {
+        await removeLocationFromList(listId, locationId)
+      } catch (err) {
+        console.error('Failed to remove location:', err)
+      } finally {
+        setOperationLoading(false)
+      }
+    }
   }
 
   return (
@@ -78,11 +128,19 @@ export function MyListPanel({
           <h2 className="text-lg font-semibold">マイリスト</h2>
           <button
             onClick={() => setIsCreating(true)}
-            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 rounded-lg text-sm transition-colors"
+            disabled={operationLoading}
+            className="px-3 py-1 bg-blue-600 hover:bg-blue-700 disabled:opacity-50 rounded-lg text-sm transition-colors"
           >
             + 新規作成
           </button>
         </div>
+
+        {/* Error display */}
+        {error && (
+          <div className="mb-3 p-2 bg-red-900/50 rounded-lg border border-red-700">
+            <p className="text-sm text-red-300">{error}</p>
+          </div>
+        )}
 
         {/* Create new list form */}
         {isCreating && (
@@ -94,6 +152,7 @@ export function MyListPanel({
               placeholder="リスト名を入力..."
               className="w-full px-3 py-2 bg-gray-700 rounded border border-gray-600 focus:border-blue-500 focus:outline-none text-sm"
               autoFocus
+              disabled={operationLoading}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') handleCreateList()
                 if (e.key === 'Escape') setIsCreating(false)
@@ -102,16 +161,18 @@ export function MyListPanel({
             <div className="flex gap-2 mt-2">
               <button
                 onClick={handleCreateList}
-                className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm transition-colors"
+                disabled={operationLoading}
+                className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded text-sm transition-colors"
               >
-                作成
+                {operationLoading ? '作成中...' : '作成'}
               </button>
               <button
                 onClick={() => {
                   setIsCreating(false)
                   setNewListName('')
                 }}
-                className="flex-1 px-3 py-1.5 bg-gray-600 hover:bg-gray-500 rounded text-sm transition-colors"
+                disabled={operationLoading}
+                className="flex-1 px-3 py-1.5 bg-gray-600 hover:bg-gray-500 disabled:opacity-50 rounded text-sm transition-colors"
               >
                 キャンセル
               </button>
@@ -131,7 +192,11 @@ export function MyListPanel({
 
       {/* Lists */}
       <div className="flex-1 overflow-y-auto">
-        {lists.length === 0 ? (
+        {loading ? (
+          <div className="p-4 text-center text-gray-500">
+            <p>読み込み中...</p>
+          </div>
+        ) : lists.length === 0 ? (
           <div className="p-4 text-center text-gray-500">
             <p>マイリストがありません</p>
             <p className="text-sm mt-1">「新規作成」で作成してください</p>
@@ -176,6 +241,7 @@ export function MyListPanel({
                           }}
                           className="flex-1 px-2 py-1 bg-gray-600 rounded border border-gray-500 focus:border-blue-500 focus:outline-none text-sm"
                           autoFocus
+                          disabled={operationLoading}
                         />
                       ) : (
                         <span className="font-medium truncate">{list.name}</span>
@@ -195,15 +261,16 @@ export function MyListPanel({
                       {selectedLocation && (
                         <button
                           onClick={() => handleAddToList(list.id)}
-                          className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 rounded text-sm transition-colors"
+                          disabled={operationLoading}
+                          className="flex-1 px-3 py-1.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded text-sm transition-colors"
                         >
-                          + 場所を追加
+                          {operationLoading ? '追加中...' : '+ 場所を追加'}
                         </button>
                       )}
                       {list.locations.length >= 2 && (
                         <button
                           onClick={() => onCalculateRoute(list)}
-                          disabled={calculatingRoute}
+                          disabled={calculatingRoute || operationLoading}
                           className="flex-1 px-3 py-1.5 bg-purple-600 hover:bg-purple-700 disabled:opacity-50 rounded text-sm transition-colors"
                         >
                           {calculatingRoute ? '計算中...' : 'ルート計算'}
@@ -248,10 +315,9 @@ export function MyListPanel({
                               </p>
                             </div>
                             <button
-                              onClick={() =>
-                                removeLocationFromList(list.id, location.id)
-                              }
-                              className="p-1 text-gray-400 hover:text-red-400 transition-colors"
+                              onClick={() => handleRemoveLocation(list.id, location.id)}
+                              disabled={operationLoading}
+                              className="p-1 text-gray-400 hover:text-red-400 disabled:opacity-50 transition-colors"
                               title="削除"
                             >
                               <svg
@@ -279,13 +345,15 @@ export function MyListPanel({
                         <>
                           <button
                             onClick={() => handleSaveEdit(list.id)}
-                            className="px-3 py-1 bg-green-600 hover:bg-green-700 rounded text-xs transition-colors"
+                            disabled={operationLoading}
+                            className="px-3 py-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 rounded text-xs transition-colors"
                           >
-                            保存
+                            {operationLoading ? '保存中...' : '保存'}
                           </button>
                           <button
                             onClick={handleCancelEdit}
-                            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs transition-colors"
+                            disabled={operationLoading}
+                            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 disabled:opacity-50 rounded text-xs transition-colors"
                           >
                             キャンセル
                           </button>
@@ -294,17 +362,15 @@ export function MyListPanel({
                         <>
                           <button
                             onClick={() => handleStartEdit(list)}
-                            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 rounded text-xs transition-colors"
+                            disabled={operationLoading}
+                            className="px-3 py-1 bg-gray-600 hover:bg-gray-500 disabled:opacity-50 rounded text-xs transition-colors"
                           >
                             編集
                           </button>
                           <button
-                            onClick={() => {
-                              if (confirm(`「${list.name}」を削除しますか？`)) {
-                                deleteList(list.id)
-                              }
-                            }}
-                            className="px-3 py-1 bg-red-600 hover:bg-red-700 rounded text-xs transition-colors"
+                            onClick={() => handleDeleteList(list)}
+                            disabled={operationLoading}
+                            className="px-3 py-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 rounded text-xs transition-colors"
                           >
                             削除
                           </button>
