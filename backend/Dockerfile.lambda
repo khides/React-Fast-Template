@@ -1,0 +1,15 @@
+FROM public.ecr.aws/lambda/python:3.11
+
+# Install system dependencies for psycopg2
+RUN dnf install -y gcc python3-devel postgresql-devel && \
+    dnf clean all
+
+# Copy requirements and install dependencies
+COPY pyproject.toml ${LAMBDA_TASK_ROOT}/
+RUN pip install --no-cache-dir -e ${LAMBDA_TASK_ROOT}
+
+# Copy application code
+COPY app ${LAMBDA_TASK_ROOT}/app
+
+# Set the handler
+CMD ["app.main.handler"]
