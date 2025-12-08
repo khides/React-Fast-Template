@@ -38,6 +38,7 @@ htmlcov/
 # CDK
 cdk.out/
 .cdk.staging/
+cdk-outputs*.json
 
 # AWS SAM
 .aws-sam/

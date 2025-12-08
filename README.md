@@ -364,3 +364,13 @@ docker-compose restart db
 ## ライセンス
 
 MIT License
+
+
+## メモ
+
+```bash
+taiko@hidewin-Opt ~/React-Fast-Template (main)>  curl https://checkip.amazonaws.com
+222.150.143.116
+taiko@hidewin-Opt ~/React-Fast-Template (main)> make deploy
+taiko@hidewin-Opt ~/React-Fast-Template (main)>  ssh -i ../template-deploy-server-key.pem ec2-user@ec2-18-183-61-20.ap-northeast-1.compute.amazonaws.com      
+```
