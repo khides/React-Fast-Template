@@ -134,21 +134,40 @@ lint:
 # =============================================================================
 
 # Check AWS credentials
+# If AWS_PROFILE is "none", use IAM role (no profile)
 check-aws:
-	@echo "Checking AWS credentials for profile: $(AWS_PROFILE)"
-	@AWS_PROFILE=$(AWS_PROFILE) aws sts get-caller-identity || \
-		(echo "Error: AWS credentials not configured. Run: aws configure --profile $(AWS_PROFILE)" && exit 1)
-	@echo ""
-	@echo "AWS Account: $$(AWS_PROFILE=$(AWS_PROFILE) aws sts get-caller-identity --query Account --output text)"
-	@echo "AWS Region:  $$(AWS_PROFILE=$(AWS_PROFILE) aws configure get region || echo 'ap-northeast-1')"
+	@if [ "$(AWS_PROFILE)" = "none" ]; then \
+		echo "Checking AWS credentials (using IAM role)..."; \
+		unset AWS_PROFILE; \
+		aws sts get-caller-identity || \
+			(echo "Error: AWS credentials not configured. Attach IAM role to EC2 or run: aws configure" && exit 1); \
+		echo ""; \
+		echo "AWS Account: $$(aws sts get-caller-identity --query Account --output text)"; \
+		echo "AWS Region:  $$(aws configure get region 2>/dev/null || echo 'ap-northeast-1')"; \
+	else \
+		echo "Checking AWS credentials for profile: $(AWS_PROFILE)"; \
+		AWS_PROFILE=$(AWS_PROFILE) aws sts get-caller-identity || \
+			(echo "Error: AWS credentials not configured. Run: aws configure --profile $(AWS_PROFILE)" && exit 1); \
+		echo ""; \
+		echo "AWS Account: $$(AWS_PROFILE=$(AWS_PROFILE) aws sts get-caller-identity --query Account --output text)"; \
+		echo "AWS Region:  $$(AWS_PROFILE=$(AWS_PROFILE) aws configure get region 2>/dev/null || echo 'ap-northeast-1')"; \
+	fi
 
 # Deploy to AWS (default: dev stage)
+# Use AWS_PROFILE=none for IAM role (EC2)
 deploy: check-aws build-frontend
 	@echo "Deploying to AWS (stage: $(STAGE))..."
-	cd infra && AWS_PROFILE=$(AWS_PROFILE) npx cdk deploy --all \
-		--require-approval never \
-		--context stage=$(STAGE) \
-		--outputs-file ../cdk-outputs-$(STAGE).json
+	@if [ "$(AWS_PROFILE)" = "none" ]; then \
+		cd infra && unset AWS_PROFILE && npx cdk deploy --all \
+			--require-approval never \
+			--context stage=$(STAGE) \
+			--outputs-file ../cdk-outputs-$(STAGE).json; \
+	else \
+		cd infra && AWS_PROFILE=$(AWS_PROFILE) npx cdk deploy --all \
+			--require-approval never \
+			--context stage=$(STAGE) \
+			--outputs-file ../cdk-outputs-$(STAGE).json; \
+	fi
 	@echo ""
 	@echo "Deployment complete! Outputs saved to cdk-outputs-$(STAGE).json"
 	@if [ -f cdk-outputs-$(STAGE).json ]; then \

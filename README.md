@@ -360,17 +360,205 @@ docker-compose restart db
 ※ 本番環境では RDS のスペックアップ、Multi-AZ 構成などで追加コストが発生
 
 ---
+## メモ
+```bash
+taiko@hidewin-Opt ~/React-Fast-Template (main)>  curl https://checkip.amazonaws.com    
+```
+
+
+
+## EC2 からのデプロイ
+
+ローカル環境に制約がある場合（IP制限等）、EC2インスタンスからデプロイできます。
+
+### 前提条件
+
+- EC2インスタンスが起動済み（Amazon Linux 2023 推奨）
+- SSHキーファイルがある
+- EC2にデプロイ用IAMロールがアタッチ済み（または`aws configure`で認証情報設定）
+
+### 手順1: ローカルからEC2へソース転送
+
+```bash
+# tar + ssh で高速転送（node_modules等を除外）
+tar czf - -C ~/React-Fast-Template \
+  --exclude='node_modules' \
+  --exclude='.venv' \
+  --exclude='cdk.out' . | \
+  ssh -i <your-key.pem> ec2-user@<EC2-PUBLIC-DNS> \
+  "mkdir -p React-Fast-Template && tar xzf - -C React-Fast-Template"
+```
+
+### 手順2: EC2にSSH接続
+
+```bash
+ssh -i <your-key.pem> ec2-user@<EC2-PUBLIC-DNS>
+```
+
+### 手順3: 必要なツールをインストール（初回のみ）
+
+```bash
+# 基本ツール（make含む）
+sudo dnf install -y nodejs npm docker git make
+
+# Python 3.11（Amazon Linux 2023のデフォルトは3.9のため）
+sudo dnf install -y python3.11
+
+# AWS CDK CLI
+sudo npm install -g aws-cdk
+
+# Docker起動・自動起動設定
+sudo systemctl start docker
+sudo systemctl enable docker
+sudo usermod -aG docker ec2-user
+
+# スワップファイル作成（t2.micro等メモリ1GB以下の場合は必須）
+sudo dd if=/dev/zero of=/swapfile bs=128M count=16
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
+
+# Dockerグループ反映のため再ログイン
+exit
+```
+
+### 手順4: 再度SSH接続して依存関係をインストール
+
+```bash
+ssh -i <your-key.pem> ec2-user@<EC2-PUBLIC-DNS>
+
+cd React-Fast-Template
+
+# Frontend依存関係
+cd frontend && npm install && cd ..
+
+# Backend依存関係（Python 3.11を使用、ディスク容量節約のため--no-cache-dir）
+cd backend
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install --no-cache-dir -e .
+cd ..
+
+# Infra依存関係
+cd infra && npm install && cd ..
+```
+
+### 手順5: デプロイ実行
+
+```bash
+# Node.jsのメモリ上限を設定（スワップを活用するため必須）
+export NODE_OPTIONS="--max-old-space-size=2048"
+
+# デプロイ（IAMロール使用の場合はAWS_PROFILE=none）
+make deploy AWS_PROFILE=none
+```
+
+
+### 必要な IAM ロール権限
+
+EC2にアタッチするIAMロールには以下の権限が必要:
+
+| サービス | 権限 |
+|---------|------|
+| CloudFormation | フルアクセス |
+| Lambda | フルアクセス |
+| S3 | フルアクセス |
+| CloudFront | フルアクセス |
+| RDS | フルアクセス |
+| EC2 | VPC, SecurityGroup |
+| IAM | ロール作成・管理 |
+| Secrets Manager | フルアクセス |
+| CloudWatch Logs | フルアクセス |
+
+※ 簡易的には `AdministratorAccess` ポリシーをアタッチ
+
+### 2回目以降のデプロイ
+
+```bash
+# ローカルで変更をEC2に転送
+tar czf - -C ~/React-Fast-Template \
+  --exclude='node_modules' \
+  --exclude='.venv' \
+  --exclude='cdk.out' . | \
+  ssh -i <your-key.pem> ec2-user@<EC2-PUBLIC-DNS> \
+  "tar xzf - -C React-Fast-Template"
+
+# EC2でデプロイ
+ssh -i <your-key.pem> ec2-user@<EC2-PUBLIC-DNS>
+cd React-Fast-Template
+export NODE_OPTIONS="--max-old-space-size=2048"
+make deploy AWS_PROFILE=none
+```
+
+### トラブルシューティング（EC2デプロイ）
+
+#### `make: command not found`
+```bash
+sudo dnf install -y make
+```
+
+#### `pip install`でディスク容量エラー
+```bash
+# --no-cache-dirオプションでキャッシュを無効化
+pip install --no-cache-dir -e .
+```
+
+#### Python バージョンエラー（3.11が必要）
+```bash
+# Python 3.11をインストール
+sudo dnf install -y python3.11
+
+# venvを再作成
+rm -rf .venv
+python3.11 -m venv .venv
+source .venv/bin/activate
+pip install --no-cache-dir -e .
+```
+
+#### メモリ不足エラー（JavaScript heap out of memory）
+
+t2.micro（メモリ1GB）等の小さいインスタンスでは、CDKデプロイ時にメモリ不足エラーが発生します。
+
+```
+FATAL ERROR: Reached heap limit Allocation failed - JavaScript heap out of memory
+```
+
+**解決策1: スワップファイルを追加（初回セットアップで実施済みの場合はスキップ）**
+```bash
+sudo dd if=/dev/zero of=/swapfile bs=128M count=16
+sudo chmod 600 /swapfile
+sudo mkswap /swapfile
+sudo swapon /swapfile
+echo '/swapfile swap swap defaults 0 0' | sudo tee -a /etc/fstab
+```
+
+**解決策2: Node.jsのメモリ上限を設定（必須）**
+```bash
+export NODE_OPTIONS="--max-old-space-size=2048"
+```
+
+両方を実施することで、スワップ領域をNode.jsが活用できるようになります。
+
+#### EC2がフリーズして接続できない
+
+メモリ不足でEC2がフリーズした場合：
+1. AWSコンソール → EC2 → インスタンス
+2. 対象インスタンスを選択
+3. インスタンスの状態 → インスタンスを再起動
+
+### EC2用IAMロールの作成手順
+
+1. IAMコンソール → ロール → ロールを作成
+2. 「AWSのサービス」→「EC2」を選択 → 次へ
+3. 「AdministratorAccess」にチェック → 次へ
+4. ロール名: `EC2-CDK-Deploy-Role` → ロールを作成
+5. EC2コンソール → 対象インスタンスを選択
+6. アクション → セキュリティ → IAMロールを変更
+7. `EC2-CDK-Deploy-Role` を選択 → 更新
+
+---
 
 ## ライセンス
 
 MIT License
-
-
-## メモ
-
-```bash
-taiko@hidewin-Opt ~/React-Fast-Template (main)>  curl https://checkip.amazonaws.com
-222.150.143.116
-taiko@hidewin-Opt ~/React-Fast-Template (main)> make deploy
-taiko@hidewin-Opt ~/React-Fast-Template (main)>  ssh -i ../template-deploy-server-key.pem ec2-user@ec2-18-183-61-20.ap-northeast-1.compute.amazonaws.com      
-```
