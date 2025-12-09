@@ -9,7 +9,7 @@ import * as path from 'path';
 interface FrontendStackProps extends cdk.StackProps {
   appName: string;
   stage: string;
-  lambdaFunctionUrl: string;
+  apiEndpoint: string;  // API Gateway endpoint (Lambda Function URLから変更)
 }
 
 export class FrontendStack extends cdk.Stack {
@@ -28,6 +28,7 @@ export class FrontendStack extends cdk.Stack {
           : cdk.RemovalPolicy.DESTROY,
       autoDeleteObjects: props.stage !== 'prod',
       encryption: s3.BucketEncryption.S3_MANAGED,
+      versioned: props.stage === 'prod',  // 本番のみバージョニング有効
     });
 
     // CloudFront Origin Access Identity
@@ -42,11 +43,11 @@ export class FrontendStack extends cdk.Stack {
     // Grant read access to CloudFront
     websiteBucket.grantRead(originAccessIdentity);
 
-    // Extract Lambda Function URL domain (remove https:// and trailing /)
-    // Lambda Function URL format: https://xxxx.lambda-url.region.on.aws/
-    const lambdaDomain = cdk.Fn.select(
+    // API Gateway ドメイン抽出
+    // API Gateway endpoint format: https://xxxxx.execute-api.region.amazonaws.com
+    const apiDomain = cdk.Fn.select(
       2,
-      cdk.Fn.split('/', props.lambdaFunctionUrl)
+      cdk.Fn.split('/', props.apiEndpoint)
     );
 
     // CloudFront distribution
@@ -61,7 +62,7 @@ export class FrontendStack extends cdk.Stack {
       },
       additionalBehaviors: {
         '/api/*': {
-          origin: new cloudfrontOrigins.HttpOrigin(lambdaDomain, {
+          origin: new cloudfrontOrigins.HttpOrigin(apiDomain, {
             protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
           }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
@@ -119,6 +120,12 @@ export class FrontendStack extends cdk.Stack {
       value: websiteBucket.bucketName,
       description: 'S3 Bucket Name',
       exportName: `${props.appName}-${props.stage}-bucket-name`,
+    });
+
+    new cdk.CfnOutput(this, 'ApiGatewayOrigin', {
+      value: apiDomain,
+      description: 'API Gateway Domain (CloudFront Origin)',
+      exportName: `${props.appName}-${props.stage}-api-origin`,
     });
   }
 }

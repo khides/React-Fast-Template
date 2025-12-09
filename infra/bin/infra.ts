@@ -39,15 +39,14 @@ const backendStack = new BackendStack(app, `${appName}-${stage}-backend`, {
   vpc: networkStack.vpc,
   databaseSecret: databaseStack.databaseSecret,
   databaseEndpoint: databaseStack.databaseEndpoint,
-  // RDS Proxy - uncomment when upgrading account
-  // rdsProxy: databaseStack.rdsProxy,
+  databaseSecurityGroup: databaseStack.securityGroup,  // RDS SGを渡す
 });
 
 const frontendStack = new FrontendStack(app, `${appName}-${stage}-frontend`, {
   env,
   appName,
   stage,
-  lambdaFunctionUrl: backendStack.lambdaFunctionUrl,
+  apiEndpoint: backendStack.apiEndpoint,  // Lambda Function URL → API Gateway endpoint
 });
 
 // Add dependencies

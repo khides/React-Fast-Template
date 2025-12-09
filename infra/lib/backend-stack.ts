@@ -1,7 +1,8 @@
 import * as cdk from 'aws-cdk-lib';
 import * as ec2 from 'aws-cdk-lib/aws-ec2';
 import * as lambda from 'aws-cdk-lib/aws-lambda';
-// import * as rds from 'aws-cdk-lib/aws-rds';
+import * as apigwv2 from 'aws-cdk-lib/aws-apigatewayv2';
+import * as apigwv2_integrations from 'aws-cdk-lib/aws-apigatewayv2-integrations';
 import * as secretsmanager from 'aws-cdk-lib/aws-secretsmanager';
 import * as logs from 'aws-cdk-lib/aws-logs';
 import { Construct } from 'constructs';
@@ -13,12 +14,11 @@ interface BackendStackProps extends cdk.StackProps {
   vpc: ec2.IVpc;
   databaseSecret: secretsmanager.ISecret;
   databaseEndpoint: string;
-  // RDS Proxy - uncomment when upgrading account
-  // rdsProxy: rds.DatabaseProxy;
+  databaseSecurityGroup: ec2.ISecurityGroup;
 }
 
 export class BackendStack extends cdk.Stack {
-  public readonly lambdaFunctionUrl: string;
+  public readonly apiEndpoint: string;
   public readonly lambdaFunction: lambda.DockerImageFunction;
 
   constructor(scope: Construct, id: string, props: BackendStackProps) {
@@ -31,8 +31,16 @@ export class BackendStack extends cdk.Stack {
       allowAllOutbound: true,
     });
 
-    // Note: Lambda can connect to RDS because DatabaseStack allows
-    // inbound PostgreSQL from the entire VPC CIDR block
+    // RDS SGにLambda SGからのアクセスのみ許可
+    // 循環参照を避けるため、CfnSecurityGroupIngressを使用
+    new ec2.CfnSecurityGroupIngress(this, 'RdsIngressFromLambda', {
+      ipProtocol: 'tcp',
+      fromPort: 5432,
+      toPort: 5432,
+      groupId: props.databaseSecurityGroup.securityGroupId,
+      sourceSecurityGroupId: lambdaSg.securityGroupId,
+      description: 'Allow PostgreSQL from Lambda only',
+    });
 
     // Lambda function
     this.lambdaFunction = new lambda.DockerImageFunction(this, 'BackendFunction', {
@@ -43,8 +51,8 @@ export class BackendStack extends cdk.Stack {
           file: 'Dockerfile.lambda',
         }
       ),
-      memorySize: 512,
-      timeout: cdk.Duration.seconds(30),
+      memorySize: 1024,  // 512 → 1024 に増加
+      timeout: cdk.Duration.seconds(60),  // 30 → 60 に増加
       vpc: props.vpc,
       vpcSubnets: {
         subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS,
@@ -52,44 +60,87 @@ export class BackendStack extends cdk.Stack {
       securityGroups: [lambdaSg],
       environment: {
         ENVIRONMENT: props.stage,
-        // Direct RDS connection (without RDS Proxy)
-        DATABASE_URL: `postgresql://${props.databaseSecret.secretValueFromJson('username').unsafeUnwrap()}:${props.databaseSecret.secretValueFromJson('password').unsafeUnwrap()}@${props.databaseEndpoint}:5432/app`,
-        // RDS Proxy connection - uncomment when upgrading account
-        // DATABASE_URL: `postgresql://${props.databaseSecret.secretValueFromJson('username').unsafeUnwrap()}:${props.databaseSecret.secretValueFromJson('password').unsafeUnwrap()}@${props.rdsProxy.endpoint}:5432/app`,
+        // Secret ARNのみ渡し、Lambda内でSecrets Managerから取得
+        DATABASE_SECRET_ARN: props.databaseSecret.secretArn,
+        DATABASE_HOST: props.databaseEndpoint,
+        DATABASE_NAME: 'app',
       },
-      logRetention: logs.RetentionDays.ONE_WEEK,
+      logRetention: props.stage === 'prod'
+        ? logs.RetentionDays.ONE_MONTH
+        : logs.RetentionDays.ONE_WEEK,
     });
 
     // Grant Lambda access to secrets
     props.databaseSecret.grantRead(this.lambdaFunction);
 
-    // Grant Lambda access to RDS Proxy - uncomment when upgrading account
-    // props.rdsProxy.grantConnect(this.lambdaFunction, props.databaseSecret.secretValueFromJson('username').unsafeUnwrap());
-
-    // Lambda Function URL (API Gateway を使わずに直接呼び出し)
-    const functionUrl = this.lambdaFunction.addFunctionUrl({
-      authType: lambda.FunctionUrlAuthType.NONE, // 公開 (CloudFront経由でアクセス)
-      cors: {
-        allowedOrigins: ['*'],
-        allowedMethods: [lambda.HttpMethod.ALL],
-        allowedHeaders: ['*'],
+    // HTTP API Gateway (v2) - ルーティングはLambda(FastAPI)に委譲
+    const httpApi = new apigwv2.HttpApi(this, 'HttpApi', {
+      apiName: `${props.appName}-${props.stage}-api`,
+      description: `${props.appName} HTTP API - ${props.stage}`,
+      corsPreflight: {
+        // 本番ではCloudFrontドメインのみ許可（FrontendStackデプロイ後に更新が必要）
+        // 開発では全許可
+        allowOrigins: props.stage === 'prod'
+          ? ['https://*.cloudfront.net']  // 本番: CloudFrontのみ
+          : ['*'],  // 開発: 全許可
+        allowMethods: [
+          apigwv2.CorsHttpMethod.GET,
+          apigwv2.CorsHttpMethod.POST,
+          apigwv2.CorsHttpMethod.PUT,
+          apigwv2.CorsHttpMethod.DELETE,
+          apigwv2.CorsHttpMethod.PATCH,
+          apigwv2.CorsHttpMethod.OPTIONS,
+        ],
+        allowHeaders: [
+          'Content-Type',
+          'Authorization',
+          'X-Amz-Date',
+          'X-Api-Key',
+          'X-Amz-Security-Token',
+        ],
         maxAge: cdk.Duration.days(1),
       },
     });
 
-    this.lambdaFunctionUrl = functionUrl.url;
+    // Lambda統合 (プロキシ統合 - 全パスをLambdaに転送)
+    const lambdaIntegration = new apigwv2_integrations.HttpLambdaIntegration(
+      'LambdaIntegration',
+      this.lambdaFunction
+    );
+
+    // ワイルドカードルーティング - 全パスをLambda(FastAPI)に転送
+    httpApi.addRoutes({
+      path: '/{proxy+}',
+      methods: [apigwv2.HttpMethod.ANY],
+      integration: lambdaIntegration,
+    });
+
+    // ルートパス (ヘルスチェック等)
+    httpApi.addRoutes({
+      path: '/',
+      methods: [apigwv2.HttpMethod.GET],
+      integration: lambdaIntegration,
+    });
+
+    this.apiEndpoint = httpApi.apiEndpoint;
 
     // Outputs
-    new cdk.CfnOutput(this, 'LambdaFunctionUrl', {
-      value: this.lambdaFunctionUrl,
-      description: 'Lambda Function URL',
-      exportName: `${props.appName}-${props.stage}-lambda-url`,
+    new cdk.CfnOutput(this, 'ApiEndpoint', {
+      value: this.apiEndpoint,
+      description: 'HTTP API Gateway Endpoint',
+      exportName: `${props.appName}-${props.stage}-api-endpoint`,
     });
 
     new cdk.CfnOutput(this, 'LambdaFunctionArn', {
       value: this.lambdaFunction.functionArn,
       description: 'Lambda Function ARN',
       exportName: `${props.appName}-${props.stage}-lambda-arn`,
+    });
+
+    new cdk.CfnOutput(this, 'HttpApiId', {
+      value: httpApi.httpApiId,
+      description: 'HTTP API ID',
+      exportName: `${props.appName}-${props.stage}-http-api-id`,
     });
   }
 }

@@ -21,18 +21,12 @@ export class DatabaseStack extends cdk.Stack {
     super(scope, id, props);
 
     // Security group for RDS
+    // Note: インバウンドルールはBackendStackでLambda SGからのみ許可するよう設定
     this.securityGroup = new ec2.SecurityGroup(this, 'DatabaseSG', {
       vpc: props.vpc,
       description: 'Security group for RDS PostgreSQL',
       allowAllOutbound: true,
     });
-
-    // Allow inbound PostgreSQL from VPC
-    this.securityGroup.addIngressRule(
-      ec2.Peer.ipv4(props.vpc.vpcCidrBlock),
-      ec2.Port.tcp(5432),
-      'Allow PostgreSQL from VPC'
-    );
 
     // Create database credentials secret
     this.databaseSecret = new secretsmanager.Secret(this, 'DatabaseSecret', {
@@ -68,7 +62,9 @@ export class DatabaseStack extends cdk.Stack {
       storageEncrypted: true,
       multiAz: false,
       autoMinorVersionUpgrade: true,
-      backupRetention: cdk.Duration.days(1),
+      backupRetention: props.stage === 'prod'
+        ? cdk.Duration.days(7)
+        : cdk.Duration.days(1),
       deletionProtection: props.stage === 'prod',
       removalPolicy:
         props.stage === 'prod'
