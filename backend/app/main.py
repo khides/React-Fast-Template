@@ -1,8 +1,10 @@
+import os
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI, Depends
+from fastapi import FastAPI, Depends, Request, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.base import BaseHTTPMiddleware
 from mangum import Mangum
 from sqlalchemy import text
 from sqlalchemy.orm import Session
@@ -11,6 +13,35 @@ from app.api import router as api_router
 from app.core.config import settings
 from app.db.session import engine, get_db
 from app.db import models
+
+
+class CloudFrontValidationMiddleware(BaseHTTPMiddleware):
+    """
+    CloudFront経由のリクエストのみを許可するミドルウェア。
+    API Gatewayへの直接アクセスをブロックします。
+    """
+
+    async def dispatch(self, request: Request, call_next):
+        # ヘルスチェックエンドポイントはスキップ（ALB/ELBヘルスチェック用）
+        if request.url.path.startswith("/api/health"):
+            return await call_next(request)
+
+        # ウォームアップリクエストはスキップ（EventBridge用）
+        if request.headers.get("X-Warmup") == "true":
+            return await call_next(request)
+
+        # 本番・ステージング環境でのみ検証
+        if settings.ENVIRONMENT in ("prod", "production", "staging"):
+            expected_secret = os.getenv("CLOUDFRONT_SECRET")
+            actual_secret = request.headers.get("X-CloudFront-Secret")
+
+            if expected_secret and actual_secret != expected_secret:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Direct access not allowed. Please use CloudFront."
+                )
+
+        return await call_next(request)
 
 
 @asynccontextmanager
@@ -37,6 +68,9 @@ app = FastAPI(
     redirect_slashes=False,
 )
 
+# CloudFront検証ミドルウェア（本番環境でAPI Gateway直接アクセスをブロック）
+app.add_middleware(CloudFrontValidationMiddleware)
+
 # CORS middleware
 app.add_middleware(
     CORSMiddleware,
@@ -58,8 +92,12 @@ handler = Mangum(app, lifespan="off")
 
 
 @app.get("/api/health")
-def health_check() -> dict[str, str]:
+def health_check(request: Request) -> dict[str, str]:
     """Health check endpoint for load balancer and monitoring."""
+    # ウォームアップリクエストの場合は軽量レスポンス
+    if request.headers.get("X-Warmup") == "true":
+        return {"status": "warm"}
+
     return {"status": "healthy", "message": "API is running"}
 
 

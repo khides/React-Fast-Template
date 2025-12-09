@@ -18,6 +18,10 @@ const env = {
 const appName = app.node.tryGetContext('appName') || 'react-fast-app';
 const stage = app.node.tryGetContext('stage') || 'dev';
 
+// CloudFront → API Gateway セキュリティ用シークレット
+// 本番環境では環境変数または Secrets Manager から取得することを推奨
+const cloudFrontSecret = process.env.CLOUDFRONT_SECRET || `${appName}-${stage}-cf-secret-${Date.now()}`;
+
 // Create stacks
 const networkStack = new NetworkStack(app, `${appName}-${stage}-network`, {
   env,
@@ -40,6 +44,7 @@ const backendStack = new BackendStack(app, `${appName}-${stage}-backend`, {
   databaseSecret: databaseStack.databaseSecret,
   databaseEndpoint: databaseStack.databaseEndpoint,
   databaseSecurityGroup: databaseStack.securityGroup,  // RDS SGを渡す
+  cloudFrontSecret,  // CloudFront → API Gateway セキュリティ用
 });
 
 const frontendStack = new FrontendStack(app, `${appName}-${stage}-frontend`, {
@@ -47,6 +52,7 @@ const frontendStack = new FrontendStack(app, `${appName}-${stage}-frontend`, {
   appName,
   stage,
   apiEndpoint: backendStack.apiEndpoint,  // Lambda Function URL → API Gateway endpoint
+  cloudFrontSecret,  // CloudFront → API Gateway セキュリティ用
 });
 
 // Add dependencies

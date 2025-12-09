@@ -10,6 +10,7 @@ interface FrontendStackProps extends cdk.StackProps {
   appName: string;
   stage: string;
   apiEndpoint: string;  // API Gateway endpoint (Lambda Function URLから変更)
+  cloudFrontSecret: string;  // CloudFront → API Gateway セキュリティ用シークレット
 }
 
 export class FrontendStack extends cdk.Stack {
@@ -31,17 +32,14 @@ export class FrontendStack extends cdk.Stack {
       versioned: props.stage === 'prod',  // 本番のみバージョニング有効
     });
 
-    // CloudFront Origin Access Identity
-    const originAccessIdentity = new cloudfront.OriginAccessIdentity(
-      this,
-      'OAI',
+    // CloudFront Origin Access Control (OAC) - OAIからの移行
+    // OACはOAIより新しく推奨される方式で、バケットポリシーは自動設定される
+    const s3Origin = cloudfrontOrigins.S3BucketOrigin.withOriginAccessControl(
+      websiteBucket,
       {
-        comment: `OAI for ${props.appName}-${props.stage}`,
+        originAccessLevels: [cloudfront.AccessLevel.READ],
       }
     );
-
-    // Grant read access to CloudFront
-    websiteBucket.grantRead(originAccessIdentity);
 
     // API Gateway ドメイン抽出
     // API Gateway endpoint format: https://xxxxx.execute-api.region.amazonaws.com
@@ -50,20 +48,39 @@ export class FrontendStack extends cdk.Stack {
       cdk.Fn.split('/', props.apiEndpoint)
     );
 
+    // ============================================
+    // Phase 3: 静的アセット用カスタムキャッシュポリシー
+    // ============================================
+    const staticAssetsCachePolicy = new cloudfront.CachePolicy(this, 'StaticAssetsCachePolicy', {
+      cachePolicyName: `${props.appName}-${props.stage}-static-assets`,
+      comment: 'Optimized cache policy for static assets (JS, CSS, images)',
+      defaultTtl: cdk.Duration.days(7),
+      maxTtl: cdk.Duration.days(365),
+      minTtl: cdk.Duration.hours(1),
+      enableAcceptEncodingGzip: true,
+      enableAcceptEncodingBrotli: true,
+      // 静的アセットはヘッダー・クエリ・Cookieを無視してキャッシュ効率を最大化
+      headerBehavior: cloudfront.CacheHeaderBehavior.none(),
+      queryStringBehavior: cloudfront.CacheQueryStringBehavior.none(),
+      cookieBehavior: cloudfront.CacheCookieBehavior.none(),
+    });
+
     // CloudFront distribution
     const distribution = new cloudfront.Distribution(this, 'Distribution', {
       defaultBehavior: {
-        origin: new cloudfrontOrigins.S3Origin(websiteBucket, {
-          originAccessIdentity,
-        }),
+        origin: s3Origin,
         viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.REDIRECT_TO_HTTPS,
-        cachePolicy: cloudfront.CachePolicy.CACHING_OPTIMIZED,
+        // Phase 3: カスタムキャッシュポリシーを適用
+        cachePolicy: staticAssetsCachePolicy,
         compress: true,
       },
       additionalBehaviors: {
         '/api/*': {
           origin: new cloudfrontOrigins.HttpOrigin(apiDomain, {
             protocolPolicy: cloudfront.OriginProtocolPolicy.HTTPS_ONLY,
+            customHeaders: {
+              'X-CloudFront-Secret': props.cloudFrontSecret,
+            },
           }),
           viewerProtocolPolicy: cloudfront.ViewerProtocolPolicy.HTTPS_ONLY,
           allowedMethods: cloudfront.AllowedMethods.ALLOW_ALL,
