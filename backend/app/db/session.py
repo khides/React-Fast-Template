@@ -24,14 +24,22 @@ def get_engine() -> Engine:
     )
 
 
+# 後方互換性のため、engine変数をエクスポート
+# main.pyなど既存コードからのインポートに対応
+engine = get_engine()
+
+
 def get_session_local() -> sessionmaker:
     """SessionLocalファクトリを取得"""
     return sessionmaker(autocommit=False, autoflush=False, bind=get_engine())
 
 
+# 後方互換性のため、SessionLocal変数をエクスポート
+SessionLocal = get_session_local()
+
+
 def get_db() -> Generator[Session, None, None]:
     """Dependency for getting database sessions."""
-    SessionLocal = get_session_local()
     db = SessionLocal()
     try:
         yield db

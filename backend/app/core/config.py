@@ -37,22 +37,33 @@ class Settings(BaseSettings):
         ローカル環境ではDATABASE_URL環境変数を使用する。
         """
         if self.DATABASE_SECRET_ARN and self.DATABASE_HOST:
-            return self._get_database_url_from_secrets_manager()
+            return _get_database_url_from_secrets_manager(
+                self.DATABASE_SECRET_ARN,
+                self.DATABASE_HOST,
+                self.DATABASE_NAME,
+                self.AWS_REGION,
+            )
         return self.DATABASE_URL
 
-    @lru_cache(maxsize=1)
-    def _get_database_url_from_secrets_manager(self) -> str:
-        """Secrets Managerから認証情報を取得してDATABASE_URLを構築"""
-        import boto3
 
-        client = boto3.client("secretsmanager", region_name=self.AWS_REGION)
-        response = client.get_secret_value(SecretId=self.DATABASE_SECRET_ARN)
-        secret = json.loads(response["SecretString"])
+@lru_cache(maxsize=1)
+def _get_database_url_from_secrets_manager(
+    secret_arn: str,
+    host: str,
+    database_name: str,
+    region: str,
+) -> str:
+    """Secrets Managerから認証情報を取得してDATABASE_URLを構築"""
+    import boto3
 
-        return (
-            f"postgresql://{secret['username']}:{secret['password']}"
-            f"@{self.DATABASE_HOST}:5432/{self.DATABASE_NAME}"
-        )
+    client = boto3.client("secretsmanager", region_name=region)
+    response = client.get_secret_value(SecretId=secret_arn)
+    secret = json.loads(response["SecretString"])
+
+    return (
+        f"postgresql://{secret['username']}:{secret['password']}"
+        f"@{host}:5432/{database_name}"
+    )
 
 
 @lru_cache
